@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Builds the recorder the way the oldest supported toolchain setup does: 32-bit, the
+# Builds the recorder, without the decoder that only the tool uses, the way the oldest
+# supported toolchain setup does: 32-bit, the
 # pre-C++11 libstdc++ string ABI, no sized deallocation, no RTTI or exceptions, warnings
 # as errors. Then checks its symbol versions against the baseline.
 
@@ -22,7 +23,7 @@ while IFS= read -r source; do
 	object="$output/obj/$(echo "${source%.cpp}" | tr / _).o"
 	g++ "${flags[@]}" -c "$source" -o "$object"
 	objects+=("$object")
-done < <(find src -name '*.cpp' -not -path '*/platform/windows/*' | sort)
+done < <(find src -name '*.cpp' -not -path '*/platform/windows/*' -not -path '*/decoder/*' | sort)
 
 g++ -m32 -shared -o "$output/libnetinspector.so" "${objects[@]}" -lpthread
 scripts/check_abi.sh "$output/libnetinspector.so"
