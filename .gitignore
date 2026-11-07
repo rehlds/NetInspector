@@ -1,0 +1,11 @@
+/build/
+/bin/
+/out/
+/Testing/
+/.vs/
+/.vscode/
+/CMakeUserPresets.json
+
+*.user
+*.gcap
+*.pcapng

@@ -1,0 +1,90 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  windows:
+    name: Windows ${{ matrix.preset }}
+    # Visual Studio 2022, which the presets generate for
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [windows-x86, windows-x64]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }} --parallel
+
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: netinspector-${{ matrix.preset }}
+          path: build/${{ matrix.preset }}/tools/netinspector/Release/netinspector.exe
+
+  linux:
+    name: Linux ${{ matrix.preset }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [linux-gcc, linux-clang, linux-sanitizers]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }} --parallel
+
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }}
+
+      - uses: actions/upload-artifact@v4
+        if: matrix.preset == 'linux-gcc'
+        with:
+          name: netinspector-linux
+          path: build/linux-gcc/tools/netinspector/netinspector
+
+  # The recorder against the oldest supported baseline: glibc 2.11, libstdc++ 3.4.15. Symbol
+  # versions come from the glibc linked against, so the build runs on an old distribution:
+  # glibc 2.34 and later version even the pthread functions anew.
+  abi-baseline:
+    name: Recorder within the ABI baseline
+    runs-on: ubuntu-latest
+    container: debian:11-slim
+    steps:
+      # Bullseye is archived: the base suite comes from the Debian archive, the security suite
+      # from its last snapshot. https needs ca-certificates, which the slim image lacks.
+      - name: Install a 32-bit toolchain
+        run: |
+          cat > /etc/apt/sources.list <<'EOF'
+          deb http://archive.debian.org/debian bullseye main
+          deb http://archive.debian.org/debian bullseye-updates main
+          EOF
+          apt-get -o Acquire::Check-Valid-Until=false update
+          apt-get install -y --no-install-recommends ca-certificates
+          echo 'deb https://snapshot-cloudflare.debian.org/archive/debian-security/20260831T000000Z bullseye-security main' > /etc/apt/sources.list.d/bullseye-security.list
+          apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Retries=5 update
+          apt-get -o Acquire::Retries=5 install -y --no-install-recommends g++ gcc-multilib g++-multilib binutils
+
+      - uses: actions/checkout@v5
+
+      - name: Build and check
+        run: bash scripts/build_baseline.sh

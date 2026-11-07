@@ -1,0 +1,6 @@
+{
+  "name": "NetInspector Linux",
+  "build": {
+    "dockerfile": "Dockerfile"
+  }
+}

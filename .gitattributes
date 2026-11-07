@@ -1,0 +1,18 @@
+* text=auto
+
+*.c       text eol=lf
+*.cpp     text eol=lf
+*.h       text eol=lf
+*.cmake   text eol=lf
+*.txt     text eol=lf
+*.md      text eol=lf
+*.json    text eol=lf
+*.yml     text eol=lf
+*.sh      text eol=lf
+*.ps1     text eol=crlf
+*.vcxitems         text eol=crlf
+*.vcxitems.filters text eol=crlf
+
+*.gcap  binary
+*.pcap    binary
+*.pcapng  binary

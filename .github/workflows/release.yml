@@ -1,0 +1,94 @@
+name: Release
+
+# A tag v<major>.<minor>.<patch> builds the tool for every platform and publishes a release
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows ${{ matrix.arch }}
+    runs-on: windows-2022
+    strategy:
+      matrix:
+        include:
+          - preset: windows-x86
+            arch: x86
+          - preset: windows-x64
+            arch: x64
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build and test
+        run: |
+          cmake --preset ${{ matrix.preset }} -DNETINSPECTOR_RELEASE_VERSION=${{ github.ref_name }}
+          cmake --build --preset ${{ matrix.preset }} --parallel
+          ctest --preset ${{ matrix.preset }}
+
+      - name: Package
+        run: |
+          cmake --install build/${{ matrix.preset }} --config Release --prefix package
+          Compress-Archive -Path package/* -DestinationPath netinspector-${{ github.ref_name }}-windows-${{ matrix.arch }}.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: netinspector-*.zip
+
+  # Built on an old distribution with libstdc++ linked in, so the binary runs on old hostings
+  linux:
+    name: Linux x64
+    runs-on: ubuntu-latest
+    container: debian:11-slim
+    steps:
+      # Bullseye is archived: the base suite comes from the Debian archive, the security suite
+      # from its last snapshot. https needs ca-certificates, which the slim image lacks.
+      - name: Install the toolchain
+        run: |
+          cat > /etc/apt/sources.list <<'EOF'
+          deb http://archive.debian.org/debian bullseye main
+          deb http://archive.debian.org/debian bullseye-updates main
+          EOF
+          apt-get -o Acquire::Check-Valid-Until=false update
+          apt-get install -y --no-install-recommends ca-certificates
+          echo 'deb https://snapshot-cloudflare.debian.org/archive/debian-security/20260831T000000Z bullseye-security main' > /etc/apt/sources.list.d/bullseye-security.list
+          apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Retries=5 update
+          apt-get -o Acquire::Retries=5 install -y --no-install-recommends git g++ make python3-pip
+          pip3 install cmake==3.31.6 ninja
+
+      - uses: actions/checkout@v5
+
+      - name: Build and test
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DLINK_STATIC_STDCPP=ON -DNETINSPECTOR_RELEASE_VERSION=${{ github.ref_name }}
+          cmake --build build --parallel
+          ctest --test-dir build --output-on-failure
+
+      - name: Package
+        run: |
+          cmake --install build --prefix package
+          tar -C package -czf netinspector-${{ github.ref_name }}-linux-x64.tar.gz .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64
+          path: netinspector-*.tar.gz
+
+  publish:
+    name: Publish
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" artifacts/* --repo "${{ github.repository }}" --title "NetInspector ${{ github.ref_name }}" --generate-notes
