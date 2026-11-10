@@ -1,16 +1,19 @@
 //=============================================================================//
 //
 // "netinspector health": what went wrong with honest traffic. Reliable data
-// the other end answered around without acknowledging, seconds a player was
-// flooded and with what, frames the recording program hung in and what came
-// in during them, clients whose messages took long to parse, packets lost on
-// the way, silences.
+// the other end answered around without acknowledging, the server's reliable
+// buffer running full and what filled it, packets it held back for the
+// client's rate, a resource list sent again in one sign-on, frames the
+// recording program hung in and what came in during them, clients whose
+// messages took long to parse, packets lost on the way, and silences the
+// other end kept although its answers were due.
 //
 //=============================================================================//
 
 #pragma once
 
 #include <cstdint>
+#include <deque>
 #include <map>
 #include <set>
 #include <string>
@@ -25,10 +28,16 @@
 namespace NetInspector
 {
 
+struct MessageTally
+{
+	uint32_t	count = 0;
+	uint32_t	bytes = 0;
+};
+
 class CHealthReport : public CCommand, private ITrafficListener
 {
 public:
-	CHealthReport() : CCommand("health", "what went wrong with honest traffic: stuck reliable data, floods, hangs, slow parsing, loss, silences") {}
+	CHealthReport() : CCommand("health", "what went wrong with honest traffic: stuck reliable data, a full reliable buffer, hangs, slow parsing, loss, silences") {}
 
 protected:
 	int Run(CReader &reader) override;
@@ -66,21 +75,66 @@ private:
 		bool									mapLoaded = false;	// a server that loads a map hangs by design
 	};
 
+	//-----------------------------------------------------------------------------
+	// Reliable messages of the server that took half or more of what one holds:
+	// a game writes a MOTD or every player's userinfo in one frame, and the
+	// largest such batch is how close it came to the limit
+	//-----------------------------------------------------------------------------
+	struct ReliableBursts
+	{
+		uint32_t	count = 0;
+		size_t		largestBytes = 0;
+		uint64_t	largestTime = 0;
+		bool		largestFragmented = false;
+		std::map<std::string, MessageTally>	largestContents;
+	};
+
+	//-----------------------------------------------------------------------------
+	// The reliable data the server queued in the last second. At that pace
+	// netchan.message fills in MAX_MSGLEN / rate: acknowledgements late by that
+	// much drop the client on HLDS. A stretch where that time stays short.
+	//-----------------------------------------------------------------------------
+	struct LagTolerance
+	{
+		std::deque<std::pair<uint64_t, size_t>>	window;	// time, bytes of each reliable message
+		size_t		windowBytes = 0;
+
+		bool		open = false;
+		uint64_t	since = 0;
+		uint64_t	until = 0;
+		double		leastSeconds = 0.0;
+		uint64_t	leastTime = 0;
+		std::map<std::string, MessageTally>	contents;
+	};
+
 	struct EndpointHealth
 	{
 		ReliableFlow	toRemote;		// the recording program's reliable data
 		ReliableFlow	fromRemote;		// the endpoint's
 
-		uint64_t		second = UINT64_MAX;	// what the server wrote to the player in this second
-		uint32_t		bytes = 0;
-		std::map<std::string, uint32_t>	bytesByMessage;
+		ReliableBursts	bursts;
+		LagTolerance	tolerance;
+		uint32_t		choked = 0;			// datagrams the server sent with svc_choke
+		uint64_t		firstChoked = 0;
+		uint32_t		unsplit = 0;		// server packets that do not follow its layout
+		uint64_t		firstUnsplit = 0;
+
+		// The player gets entities once it plays; the sign-on before that sends its tables once
+		bool			playing = false;
+		uint32_t		resourceLists = 0;	// since the server last sent svc_serverinfo
+		uint64_t		resourceListTime = 0;
+		uint32_t		resourceRequests = 0;	// the player's sendres since the first list
 
 		uint64_t		lossSecond = UINT64_MAX;
 		uint32_t		received = 0;
 		uint32_t		lost = 0;
 
+		// Channel packets each way: how often it answers is what makes its silence its own
 		bool			heard = false;
 		uint64_t		lastHeard = 0;
+		uint64_t		heardTotal = 0;
+		uint64_t		sentTotal = 0;
+		uint32_t		sentSinceHeard = 0;
 	};
 
 	void OnDatagram(const EntryHeader &header, const DatagramEntry &datagram, const uint8_t *data, size_t length) override;
@@ -96,8 +150,14 @@ private:
 	void Answer(ReliableFlow &flow, EndpointId endpoint, const char *sender, uint32_t acknowledged, bool echo, uint64_t time);
 	void ReportStuck(const ReliableFlow &flow, EndpointId endpoint, const char *sender, uint64_t time, Severity severity, const char *ending);
 
-	void CountFlood(EndpointHealth &health, EndpointId endpoint, uint64_t time, const DecodedStream &decoded);
-	void CloseFloodSecond(EndpointHealth &health, EndpointId endpoint);
+	void MeasureServerPacket(EndpointHealth &health, const ReceivedPacket &packet, const DecodedStream &decoded);
+	void MeasureFragmentedMessage(EndpointHealth &health, EndpointId endpoint, uint64_t time, const DecodedStream &decoded);
+	void AddReliableDemand(EndpointHealth &health, EndpointId endpoint, uint64_t time, const DecodedStream &decoded, size_t messages, size_t bytes, bool fragmented);
+	void CloseLagTolerance(EndpointHealth &health, EndpointId endpoint);
+	void ReportReliableBursts(EndpointHealth &health, EndpointId endpoint);
+	void ReportServerLayout(const EndpointHealth &health, EndpointId endpoint);
+	void CountSignon(EndpointHealth &health, EndpointId endpoint, uint64_t time, const DecodedStream &decoded);
+	void CountResourceRequests(EndpointHealth &health, const DecodedStream &decoded);
 	void CountLoss(EndpointHealth &health, EndpointId endpoint, uint64_t time, uint32_t received, uint32_t lost);
 	void ReportHang(const EntryHeader &header, const FrameEntry &frame);
 	std::set<std::string> SeenInFrame() const;
@@ -111,6 +171,7 @@ private:
 
 	FrameTraffic						m_Frame;
 	bool								m_Loading = false;	// a client between connect and the first entities hangs by design
+	uint64_t							m_PlayingSince = 0;	// when a client got its first entities
 	uint32_t							m_Frames = 0;
 	uint32_t							m_Hangs = 0;
 	std::map<std::string, uint32_t>		m_FrameMessages;	// frames a message name came in during

@@ -178,10 +178,22 @@ void CThreatsReport::OnChannelPacket(const ReceivedPacket &packet)
 
 void CThreatsReport::OnStream(const ReceivedPacket &packet, const PacketStream &stream)
 {
-	if (packet.source != MessageSource::Client)
-		return;
-
 	ClientThreats &client = m_Clients[packet.header.endpoint];
+
+	// A map change signs the client on again over the same channel
+	if (packet.source == MessageSource::Server)
+	{
+		for (const DecodedMessage &message : stream.decoded.messages)
+		{
+			if (message.name == "svc_serverinfo")
+			{
+				client.signon.clear();
+				client.resourceLists = 0;
+				client.consistencyAnswers = 0;
+			}
+		}
+		return;
+	}
 
 	if (!stream.decoded.complete)
 	{
@@ -199,12 +211,12 @@ void CThreatsReport::OnStream(const ReceivedPacket &packet, const PacketStream &
 		{
 			// A client sends its list once, at the signon; each one makes the server look for every file in it
 			if (++client.resourceLists > 1)
-				m_Findings.Add(Severity::High, packet.header.endpoint, "resource list sent again", packet.header.time, Format("list %u of the session: %s", client.resourceLists, message.text.substr(0, COMMAND_PREVIEW).c_str()));
+				m_Findings.Add(Severity::High, packet.header.endpoint, "resource list sent again", packet.header.time, Format("list %u of this sign-on: %s", client.resourceLists, message.text.substr(0, COMMAND_PREVIEW).c_str()));
 		}
 		else if (message.name == "clc_fileconsistency")
 		{
 			if (++client.consistencyAnswers > 1)
-				m_Findings.Add(Severity::High, packet.header.endpoint, "consistency answer sent again", packet.header.time, Format("answer %u of the session, %s", client.consistencyAnswers, message.text.c_str()));
+				m_Findings.Add(Severity::High, packet.header.endpoint, "consistency answer sent again", packet.header.time, Format("answer %u of this sign-on, %s", client.consistencyAnswers, message.text.c_str()));
 		}
 		else if (message.name == "clc_voicedata")
 		{
@@ -228,7 +240,7 @@ void CThreatsReport::CheckCommand(EndpointId endpoint, ClientThreats &client, ui
 	for (const char *signon : SIGNON_COMMANDS)
 	{
 		if (name == signon && ++client.signon[name] > 1)
-			m_Findings.Add(Severity::High, endpoint, "signon command repeated: " + name, time, Format("%s, %u times this session", preview.c_str(), client.signon[name]));
+			m_Findings.Add(Severity::High, endpoint, "signon command repeated: " + name, time, Format("%s, %u times this sign-on", preview.c_str(), client.signon[name]));
 	}
 
 	for (const char *text : SUSPICIOUS_TEXT)

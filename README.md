@@ -23,16 +23,37 @@ joins the same server again is not mixed up with the earlier visit.
 
 ```
 netinspector info capture.gcap
-netinspector scan capture.gcap [--json]
+netinspector health capture.gcap [--json]
+netinspector threats capture.gcap [--json]
 netinspector overflow capture.gcap [--list] [--json]
 netinspector timeline capture.gcap [--address <#id | ip:port>] [--from <s>] [--to <s>] [--slow-frame <ms>]
 netinspector messages capture.gcap [--address <#id | ip:port>] [--message <name>] [--from <s>] [--to <s>] [--dropped]
 netinspector <command> --help
 ```
 
-`scan` goes through a recording once and lists, per endpoint, what deserves a look: message
-streams that cannot be read, dropped packets, command and connectionless floods, oversized
-datagrams, silences, stalled acknowledgements, chokes, overflows and drops.
+`health` lists what went wrong with honest traffic, by severity: reliable buffers that
+overflowed, reliable data the other end answered around without acknowledging, reliable data
+queued at a pace that leaves little room for lag, large batches of it, packets the server held
+back for the client's rate, a resource list sent again in one sign-on, frames the recording program hung in, slow
+parsing, packets lost on the way, and silences the other end kept although its answers were due.
+
+The reliable data of a server's packet is told from its datagram by the layout the engine
+writes: Netchan_Transmit puts the reliable messages first; SV_SendClientDatagram opens the
+datagram with svc_time, an optional svc_choke and angle, then svc_clientdata; SV_DropClient's
+last packet ends with svc_disconnect. Packets that follow none of these layouts are counted and
+reported, not guessed at.
+
+Each new reliable message, its own or sent as fragments, is what the server had queued. Against
+the 3990 bytes one reliable message holds it is a batch: a game writes its MOTD or every
+player's userinfo in one frame. Over a second it is a pace: 3990 bytes divided by the bytes
+queued a second is how late acknowledgements may come before HLDS drops the client. A pace that
+keeps that time under a second for a second or more is reported; a shorter stretch is a batch.
+
+A silence is reported when the answers due over it, at the rate the other end answered before,
+make missing them all by chance less likely than one in a thousand.
+
+`threats` lists what looks like an attack: floods of commands and connectionless packets,
+crafted packets, sign-on commands sent again, repeated resource lists from a client.
 
 `overflow` takes every reliable buffer that overflowed on a server apart: the messages that
 filled it, the reliable data still in flight, whether the client had gone silent and its

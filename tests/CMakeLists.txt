@@ -19,6 +19,7 @@ add_executable(netinspector_tests
 	decoder_tests.cpp
 	format_tests.cpp
 	recorder_tests.cpp
+	server_packet_tests.cpp
 )
 
 target_link_libraries(netinspector_tests PRIVATE netinspector_decoder GTest::gtest_main)

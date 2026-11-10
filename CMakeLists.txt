@@ -37,6 +37,7 @@ add_library(netinspector_decoder STATIC
 	"src/netinspector/decoder/channel_receiver.cpp"
 	"src/netinspector/decoder/delta_reader.cpp"
 	"src/netinspector/decoder/message_decoder.cpp"
+	"src/netinspector/decoder/server_packet.cpp"
 	"src/netinspector/decoder/session_tables.cpp"
 )
 target_link_libraries(netinspector_decoder PUBLIC netinspector_core)

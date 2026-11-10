@@ -43,7 +43,7 @@ private:
 
 	struct ClientThreats
 	{
-		std::map<std::string, uint32_t> signon;	// signon commands this session
+		std::map<std::string, uint32_t> signon;	// signon commands since the last svc_serverinfo
 		uint32_t	newestAcknowledged = 0;
 		bool		acknowledgedAny = false;
 		uint32_t	newestSent = 0;			// the server's newest packet to it
