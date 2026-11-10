@@ -36,6 +36,10 @@ void AppendString(std::vector<uint8_t> &body, const char *text)
 	Append(body, value, std::strlen(value) + 1);
 }
 
+// An idle frame this long is still written: it is what the reports call a slow frame
+constexpr uint32_t IDLE_FRAME_KEPT_MICROSECONDS = 50000;
+constexpr uint64_t IDLE_FRAME_PACE_MICROSECONDS = 1000000;
+
 } // namespace
 
 class CRecorder::CImpl
@@ -53,6 +57,9 @@ public:
 			entry.endpoint = *endpoint;
 		}
 
+		if (type != Entry::Frame)
+			pushedEntries.fetch_add(1, std::memory_order_relaxed);
+
 		queue.Push(entry, head, headLength, tail, tailLength);
 	}
 
@@ -64,6 +71,11 @@ public:
 
 	uint64_t startMicroseconds = 0;
 	uint64_t lastFrameStart = 0;
+
+	// Entries other than frames, from any thread: a frame with none in it is idle
+	std::atomic<uint64_t> pushedEntries{0};
+	uint64_t pushedAtLastFrameEntry = 0;
+	uint64_t lastFrameEntryTime = 0;
 };
 
 CRecorder::CRecorder() : m_Impl(std::make_unique<CImpl>()), m_Recording(false)
@@ -165,12 +177,24 @@ void CRecorder::RecordFrame(uint64_t frameNumber)
 		return;
 
 	const uint64_t now = GetTime();
+	const bool first = m_Impl->lastFrameStart == 0;
 
 	// The first frame has no start before it to measure from
 	FrameEntry frame = {};
 	frame.frameNumber = frameNumber;
-	frame.durationMicroseconds = m_Impl->lastFrameStart ? uint32_t(std::min<uint64_t>(now - m_Impl->lastFrameStart, UINT32_MAX)) : 0;
+	frame.durationMicroseconds = first ? 0 : uint32_t(std::min<uint64_t>(now - m_Impl->lastFrameStart, UINT32_MAX));
 	m_Impl->lastFrameStart = now;
+
+	// An idle frame is left out unless it was slow; one a second still marks the pace
+	const uint64_t pushed = m_Impl->pushedEntries.load(std::memory_order_relaxed);
+	const bool idle = pushed == m_Impl->pushedAtLastFrameEntry;
+	const bool slow = frame.durationMicroseconds >= IDLE_FRAME_KEPT_MICROSECONDS;
+	const bool paceDue = now - m_Impl->lastFrameEntryTime >= IDLE_FRAME_PACE_MICROSECONDS;
+	if (!first && idle && !slow && !paceDue)
+		return;
+
+	m_Impl->pushedAtLastFrameEntry = pushed;
+	m_Impl->lastFrameEntryTime = now;
 
 	m_Impl->Push(Entry::Frame, nullptr, &frame, sizeof(frame), nullptr, 0);
 }

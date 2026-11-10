@@ -6,9 +6,11 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "netinspector/decoder/session_tables.h"
@@ -135,16 +137,28 @@ TEST_F(RecorderTest, KeepsRealAddressesOnlyWhenAsked)
 	EXPECT_EQ(std::memcmp(address.ip, SERVER.ip, sizeof(address.ip)), 0);
 }
 
-TEST_F(RecorderTest, RecordsEveryFrame)
+TEST_F(RecorderTest, LeavesOutIdleFrames)
 {
 	CRecorder recorder;
 	ASSERT_TRUE(recorder.Start(m_Path.c_str(), CRecorder::Settings()));
+
+	// Idle and short: only the first is written
 	for (uint64_t frame = 1; frame <= 1000; frame++)
 		recorder.RecordFrame(frame);
+
+	// Frame 1000 took a datagram in: the entry that closes it is written
+	const uint8_t packet[] = { 0xFF, 0xFF, 0xFF, 0xFF, 'p', 'i', 'n', 'g' };
+	recorder.RecordDatagram(Direction::In, SERVER, packet, sizeof(packet));
+	recorder.RecordFrame(1001);
+	recorder.RecordFrame(1002);
+
+	// Idle but slow: written
+	std::this_thread::sleep_for(std::chrono::milliseconds(60));
+	recorder.RecordFrame(1003);
 	recorder.Stop();
 
 	FileHeader file;
-	uint64_t expected = 1;
+	std::vector<FrameEntry> frames;
 	for (const ReadEntry &entry : ReadAll(file))
 	{
 		if (entry.header.type != Entry::Frame)
@@ -153,15 +167,15 @@ TEST_F(RecorderTest, RecordsEveryFrame)
 		FrameEntry frame;
 		ASSERT_EQ(entry.body.size(), sizeof(frame));
 		std::memcpy(&frame, entry.body.data(), sizeof(frame));
-		EXPECT_EQ(frame.frameNumber, expected);
-		if (expected == 1)
-		{
-			EXPECT_EQ(frame.durationMicroseconds, 0u);
-		}
-		expected++;
+		frames.push_back(frame);
 	}
 
-	EXPECT_EQ(expected, 1001u);
+	ASSERT_EQ(frames.size(), 3u);
+	EXPECT_EQ(frames[0].frameNumber, 1u);
+	EXPECT_EQ(frames[0].durationMicroseconds, 0u);
+	EXPECT_EQ(frames[1].frameNumber, 1001u);
+	EXPECT_EQ(frames[2].frameNumber, 1003u);
+	EXPECT_GE(frames[2].durationMicroseconds, 50000u);
 }
 
 TEST_F(RecorderTest, WritesSessionTablesTheDecoderReads)

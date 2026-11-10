@@ -76,7 +76,7 @@ enum class Entry : uint8_t
 {
 	Endpoint			= 1,	// EndpointEntry: gives an endpoint the id later entries refer to
 	Datagram			= 2,	// DatagramEntry and the datagram's bytes as they crossed the socket
-	Frame				= 3,	// FrameEntry: a frame of the recording program's main loop, every one
+	Frame				= 3,	// FrameEntry: a frame of the recording program's main loop; idle short ones left out
 	Event				= 4,	// EventEntry and key=value text
 	ServerInfo			= 5,	// ServerInfoEntry, then the map and the game directory, each NUL-terminated
 	OverflowCapture		= 6,	// OverflowCaptureEntry and a client's reliable buffer as it overflowed

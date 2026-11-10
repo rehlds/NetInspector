@@ -48,6 +48,11 @@ struct FrameTotals
 	uint64_t longestEnd = 0;
 	uint64_t slowFrames = 0;
 	std::map<uint64_t, uint32_t> perSecond;	// frames that ended in each second of the recording
+
+	// The frame entry before: idle frames between two entries are not written
+	bool hasLast = false;
+	uint64_t lastNumber = 0;
+	uint64_t lastTime = 0;
 };
 
 struct OverflowCapture
@@ -102,15 +107,23 @@ void CountDatagram(Totals &totals, const EntryHeader &header, const DatagramEntr
 	}
 }
 
-// A frame entry closes the frame before it
+// A frame entry closes the frame before it, and the idle ones left out since the entry before
 void CountFrame(FrameTotals &frames, const EntryHeader &header, const FrameEntry &frame)
 {
-	if (frame.durationMicroseconds == 0)
+	const bool counted = frame.durationMicroseconds != 0 && frames.hasLast && frame.frameNumber > frames.lastNumber;
+	const uint64_t closed = counted ? frame.frameNumber - frames.lastNumber : 0;
+	const uint64_t span = counted ? header.time - frames.lastTime : 0;
+
+	frames.hasLast = true;
+	frames.lastNumber = frame.frameNumber;
+	frames.lastTime = header.time;
+
+	if (!counted)
 		return;
 
-	frames.frames++;
-	frames.microseconds += frame.durationMicroseconds;
-	frames.perSecond[header.time / 1000000]++;
+	frames.frames += closed;
+	frames.microseconds += span;
+	frames.perSecond[header.time / 1000000] += uint32_t(closed);
 
 	if (frame.durationMicroseconds >= SLOW_FRAME_MICROSECONDS)
 		frames.slowFrames++;

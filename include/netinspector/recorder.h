@@ -86,8 +86,10 @@ public:
 	void RecordDatagram(Direction direction, const Endpoint &endpoint, const void *data, size_t length);
 
 	//-----------------------------------------------------------------------------
-	// The main loop, once per frame, at its start. Every frame is written: the
-	// datagrams between two frames are what one frame took in and sent out.
+	// The main loop, once per frame, at its start. The datagrams between two
+	// frames are what one frame took in and sent out. A frame with nothing in it
+	// is written only when it took 50 ms or more, or a second passed since the
+	// last frame written; the frame numbers count the ones left out.
 	//-----------------------------------------------------------------------------
 	void RecordFrame(uint64_t frameNumber);
 

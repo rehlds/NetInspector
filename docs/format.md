@@ -55,7 +55,7 @@ ends inside an entry; readers stop before it.
 |---|---|---|
 | 1 | Endpoint | ip[4], port (u16, host order), flags (bit 0: anonymized), reserved. Defines the id in the header's `endpoint` field. |
 | 2 | Datagram | direction (0 in, 1 out), type, reserved (u16), then the datagram's bytes. Flags bit 0: scrubbed. |
-| 3 | Frame | frameNumber (u64), durationMicroseconds (u32): written at the start of every frame of the main loop, with how long the frame before it took (0 for the first). The datagrams between two of them are what that frame took in and sent out. |
+| 3 | Frame | frameNumber (u64), durationMicroseconds (u32): written at the start of a frame of the main loop, with how long the frame before it took (0 for the first). The datagrams between two of them are what that frame took in and sent out. A frame the recorder wrote nothing else in is left out unless it took 50 ms or more or a second passed since the last Frame entry; the gap in frameNumber counts the frames left out. |
 | 4 | Event | event (u16), reserved (u16), then `key=value` text, NUL-terminated. |
 | 5 | ServerInfo | maxClients (u8), instancedBaselines (u8), reserved[2], then the map and the game directory, each NUL-terminated. |
 | 6 | OverflowCapture | bufferBytes, requestedBytes, queuedBytes, reliableInFlightBytes, queuedFragmentBuffers, unacknowledgedPackets, silentMilliseconds, reserved (u32 each), then queuedBytes of the client's reliable message buffer at the write that did not fit and reliableInFlightBytes of the reliable data sent and not acknowledged. The endpoint is the client. |
