@@ -157,8 +157,10 @@ TEST_F(RecorderTest, LeavesOutIdleFrames)
 	recorder.RecordFrame(1003);
 	recorder.Stop();
 
+	// FrameEntry is packed: its fields are copied out, never bound by reference
 	FileHeader file;
-	std::vector<FrameEntry> frames;
+	std::vector<uint64_t> numbers;
+	std::vector<uint32_t> durations;
 	for (const ReadEntry &entry : ReadAll(file))
 	{
 		if (entry.header.type != Entry::Frame)
@@ -167,15 +169,16 @@ TEST_F(RecorderTest, LeavesOutIdleFrames)
 		FrameEntry frame;
 		ASSERT_EQ(entry.body.size(), sizeof(frame));
 		std::memcpy(&frame, entry.body.data(), sizeof(frame));
-		frames.push_back(frame);
+		numbers.push_back(frame.frameNumber);
+		durations.push_back(frame.durationMicroseconds);
 	}
 
-	ASSERT_EQ(frames.size(), 3u);
-	EXPECT_EQ(frames[0].frameNumber, 1u);
-	EXPECT_EQ(frames[0].durationMicroseconds, 0u);
-	EXPECT_EQ(frames[1].frameNumber, 1001u);
-	EXPECT_EQ(frames[2].frameNumber, 1003u);
-	EXPECT_GE(frames[2].durationMicroseconds, 50000u);
+	ASSERT_EQ(numbers.size(), 3u);
+	EXPECT_EQ(numbers[0], 1u);
+	EXPECT_EQ(durations[0], 0u);
+	EXPECT_EQ(numbers[1], 1001u);
+	EXPECT_EQ(numbers[2], 1003u);
+	EXPECT_GE(durations[2], 50000u);
 }
 
 TEST_F(RecorderTest, WritesSessionTablesTheDecoderReads)
